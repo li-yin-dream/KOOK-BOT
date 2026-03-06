@@ -205,25 +205,45 @@ async def webhook(request: Request):
     try:
         raw_body = await request.body()
         logger.info(f"Received body length: {len(raw_body)}")
+        logger.info(f"Raw bytes (hex): {raw_body[:20].hex()}")  # 看看到底是什么格式
         
-        # 先尝试 gzip 解压（KOOK 默认压缩）
+        body_text = None
+        
+        # 1. 先尝试 gzip
         try:
             body_text = gzip.decompress(raw_body).decode('utf-8')
             logger.info("Gzip decompressed successfully")
-        except:
-            # 如果不是 gzip，直接 utf-8 解码
-            body_text = raw_body.decode('utf-8', errors='ignore')
+        except Exception as e:
+            logger.warning(f"Gzip failed: {e}")
+            
+            # 2. 尝试 zlib (deflate)
+            try:
+                import zlib
+                body_text = zlib.decompress(raw_body).decode('utf-8')
+                logger.info("Zlib decompressed successfully")
+            except Exception as e2:
+                logger.warning(f"Zlib failed: {e2}")
+                
+                # 3. 可能是明文（虽然不太可能）
+                body_text = raw_body.decode('utf-8', errors='ignore')
         
-        logger.info(f"Body: {body_text[:200]}")
+        logger.info(f"Final body: {body_text[:200]}")
+        
+        if not body_text or body_text.strip() == "":
+            logger.error("Empty body after processing")
+            return {"code": -1}
+        
         body = json.loads(body_text)
         
         # Challenge 验证
         if body.get("s") == 255:
             data = body.get("d", {})
+            logger.info(f"Challenge data: {data}")
             if data.get("verify_token") == VERIFY_TOKEN:
                 challenge = data.get("challenge")
                 logger.info(f"Challenge success: {challenge}")
                 return {"challenge": challenge}
+            logger.error(f"Token mismatch. Expected: {VERIFY_TOKEN}, Got: {data.get('verify_token')}")
             raise HTTPException(403, "Invalid verify token")
         
         # 处理消息
@@ -235,7 +255,7 @@ async def webhook(request: Request):
         return {"code": 0}
         
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"Webhook error: {e}")
         logger.error(traceback.format_exc())
         return {"code": 0}
 
