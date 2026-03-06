@@ -200,44 +200,85 @@ async def play_next(guild_id: str):
         if text_channel:
             await kook.send_msg(text_channel, "✅ 队列播放完毕")
 
-@app.post("/webhook")
+from fastapi import FastAPI, Request, HTTPException, Response
+from fastapi.responses import PlainTextResponse
+import json
+import gzip
+import zlib
+import logging
+
+logger = logging.getLogger("main")
+
+# 假设 VERIFY_TOKEN 已在全局定义
+# VERIFY_TOKEN = "你的token"
+
+@app.api_route("/webhook", methods=["GET", "POST"])
 async def webhook(request: Request):
-    try:
-        raw_body = await request.body()
-        logger.info(f"Received body length: {len(raw_body)}")
-        
-        # 解压（zlib 或 gzip）
-        body_text = None
+    # ==========================
+    # 1. 处理 GET 请求 (Challenge 验证)
+    # ==========================
+    if request.method == "GET":
+        challenge = request.query_params.get("challenge")
+        if challenge:
+            logger.info(f"✅ Received Challenge via GET: {challenge}")
+            # 【关键】必须返回纯文本，不能是 JSON，也不能带引号
+            return PlainTextResponse(content=challenge)
+        else:
+            logger.warning("GET request received but no challenge parameter found.")
+            raise HTTPException(status_code=400, detail="Missing challenge parameter")
+
+    # ==========================
+    # 2. 处理 POST 请求 (正常消息/偶发的 Challenge)
+    # ==========================
+    if request.method == "POST":
         try:
-            body_text = gzip.decompress(raw_body).decode('utf-8')
-            logger.info("Gzip decompressed")
-        except:
+            raw_body = await request.body()
+            # logger.info(f"Received body length: {len(raw_body)}")
+            
+            # 解压逻辑 (保留你原有的逻辑)
+            body_text = None
             try:
-                import zlib
-                body_text = zlib.decompress(raw_body).decode('utf-8')
-                logger.info("Zlib decompressed")
+                body_text = gzip.decompress(raw_body).decode('utf-8')
+                # logger.debug("Gzip decompressed")
             except:
-                body_text = raw_body.decode('utf-8', errors='ignore')
-        
-        logger.info(f"Body: {body_text[:200]}")
-        body = json.loads(body_text)
-        data = body.get("d", {})
-        
-        # Challenge 验证（关键：判断 d.type == 255）
-        if data.get("type") == 255:
-            logger.info(f"Challenge data: {data}")
-            if data.get("verify_token") == VERIFY_TOKEN:
-                challenge = data.get("challenge")
-                logger.info(f"Challenge success: {challenge}")
-                return {"challenge": challenge}
-            logger.error(f"Token mismatch")
-            raise HTTPException(403, "Invalid verify token")
-        
-        # 处理消息
-        if body.get("s") == 0 and data.get("type") == 1:
-            await handle_message(data)
-        
-        return {"code": 0}
+                try:
+                    body_text = zlib.decompress(raw_body).decode('utf-8')
+                    # logger.debug("Zlib decompressed")
+                except:
+                    body_text = raw_body.decode('utf-8', errors='ignore')
+            
+            # logger.info(f"Body: {body_text[:200]}")
+            body = json.loads(body_text)
+            data = body.get("d", {})
+            
+            # 兼容处理：如果 POST 请求里竟然带了 type 255 (非标准但存在的情况)
+            if data.get("type") == 255:
+                logger.info(f"⚠️ Received Challenge via POST (Non-standard): {data}")
+                if data.get("verify_token") == VERIFY_TOKEN:
+                    challenge = data.get("challenge")
+                    logger.info(f"Challenge success: {challenge}")
+                    # 即使是 POST 触发的验证，也必须返回纯文本！
+                    return PlainTextResponse(content=challenge)
+                logger.error(f"Token mismatch in POST challenge")
+                raise HTTPException(403, "Invalid verify token")
+            
+            # 处理正常消息 (s=0, type=1)
+            if body.get("s") == 0 and data.get("type") == 1:
+                # 确保 handle_message 是异步定义的
+                await handle_message(data)
+            
+            # 正常消息处理完毕，返回 JSON 确认
+            return {"code": 0}
+            
+        except Exception as e:
+            logger.error(f"Error processing POST: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # 发生错误时最好返回 500，或者根据 KOOK 要求返回特定格式
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # 其他方法不允许
+    raise HTTPException(status_code=405, detail="Method not allowed")
         
     except Exception as e:
         logger.error(f"Error: {e}")
