@@ -207,12 +207,16 @@ async def webhook(request: Request):
         raw_body = await request.body()
         logger.info(f"Received body length: {len(raw_body)}")
         
-        # 检查 gzip 压缩
-        if raw_body[:2] == b'\x1f\x8b':
-            logger.info("Detected gzip, decompressing...")
-            body_text = gzip.decompress(raw_body).decode('utf-8')
-        else:
-            body_text = raw_body.decode('utf-8')
+        # 检查 gzip 压缩（魔数 0x1f 0x8b）
+if len(raw_body) > 2 and raw_body[:2] == b'\x1f\x8b':
+    logger.info("Detected gzip compression, decompressing...")
+    try:
+        body_text = gzip.decompress(raw_body).decode('utf-8')
+    except Exception as e:
+        logger.error(f"Gzip decompression failed: {e}, trying plain utf-8")
+        body_text = raw_body.decode('utf-8', errors='ignore')
+else:
+    body_text = raw_body.decode('utf-8', errors='ignore')
         
         logger.info(f"Body: {body_text[:200]}")
         body = json.loads(body_text)
