@@ -9,7 +9,6 @@ import signal
 import traceback
 from typing import Optional
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
 from datetime import datetime
 import httpx
 import redis
@@ -207,16 +206,13 @@ async def webhook(request: Request):
         raw_body = await request.body()
         logger.info(f"Received body length: {len(raw_body)}")
         
-        # 检查 gzip 压缩（魔数 0x1f 0x8b）
-if len(raw_body) > 2 and raw_body[:2] == b'\x1f\x8b':
-    logger.info("Detected gzip compression, decompressing...")
-    try:
-        body_text = gzip.decompress(raw_body).decode('utf-8')
-    except Exception as e:
-        logger.error(f"Gzip decompression failed: {e}, trying plain utf-8")
-        body_text = raw_body.decode('utf-8', errors='ignore')
-else:
-    body_text = raw_body.decode('utf-8', errors='ignore')
+        # 先尝试 gzip 解压（KOOK 默认压缩）
+        try:
+            body_text = gzip.decompress(raw_body).decode('utf-8')
+            logger.info("Gzip decompressed successfully")
+        except:
+            # 如果不是 gzip，直接 utf-8 解码
+            body_text = raw_body.decode('utf-8', errors='ignore')
         
         logger.info(f"Body: {body_text[:200]}")
         body = json.loads(body_text)
