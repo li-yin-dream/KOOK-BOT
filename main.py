@@ -235,24 +235,22 @@ async def webhook(request: Request):
         
         body = json.loads(body_text)
         
-        # Challenge 验证
-        if body.get("s") == 255:
-            data = body.get("d", {})
-            logger.info(f"Challenge data: {data}")
-            if data.get("verify_token") == VERIFY_TOKEN:
-                challenge = data.get("challenge")
-                logger.info(f"Challenge success: {challenge}")
-                return {"challenge": challenge}
-            logger.error(f"Token mismatch. Expected: {VERIFY_TOKEN}, Got: {data.get('verify_token')}")
-            raise HTTPException(403, "Invalid verify token")
+        # Challenge 验证（关键修复：判断 d.type == 255，不是 s == 255）
+data = body.get("d", {})
+if data.get("type") == 255:
+    logger.info(f"Challenge data: {data}")
+    if data.get("verify_token") == VERIFY_TOKEN:
+        challenge = data.get("challenge")
+        logger.info(f"Challenge success: {challenge}")
+        return {"challenge": challenge}
+    logger.error(f"Token mismatch. Expected: {VERIFY_TOKEN}, Got: {data.get('verify_token')}")
+    raise HTTPException(403, "Invalid verify token")
         
-        # 处理消息
-        if body.get("s") == 0:
-            data = body.get("d", {})
-            if data.get("type") == 1:
-                await handle_message(data)
-        
-        return {"code": 0}
+    # 处理消息
+    if body.get("s") == 0 and data.get("type") == 1:
+        await handle_message(data)
+    
+    return {"code": 0}
         
     except Exception as e:
         logger.error(f"Webhook error: {e}")
