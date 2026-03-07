@@ -184,7 +184,17 @@ async def download_audio(query: str) -> Optional[str]:
         async with httpx.AsyncClient() as client:
             # 搜索
             r = await client.get(search_url, params=params, headers=headers)
-            data = r.json()
+            
+            # 检查是否是 JSON
+            try:
+                data = r.json()
+            except:
+                logger.error(f"返回的不是 JSON: {r.text[:200]}")
+                return None
+            
+            if not isinstance(data, dict):
+                logger.error(f"返回格式错误: {type(data)}")
+                return None
             
             if not data.get("result") or not data["result"].get("songs"):
                 logger.error("未找到歌曲")
