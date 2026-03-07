@@ -166,6 +166,7 @@ async def download_audio(query: str) -> Optional[str]:
         tmp_dir = tempfile.mkdtemp()
         output_path = f"{tmp_dir}/music.mp3"
         
+        # 修复：去掉 URL 末尾空格
         search_url = "https://music.163.com/api/search/get/web"
         params = {
             "csrf_token": "",
@@ -177,7 +178,7 @@ async def download_audio(query: str) -> Optional[str]:
         }
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://music.163.com/"
+            "Referer": "https://music.163.com/"  # 修复：去掉空格
         }
         
         async with httpx.AsyncClient() as client:
@@ -213,7 +214,7 @@ async def download_audio(query: str) -> Optional[str]:
             song_name = song["name"]
             logger.info(f"找到歌曲: {song_name}")
             
-            # 下载
+            # 修复：去掉 URL 中的空格
             url = f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
             r = await client.get(url, headers=headers, follow_redirects=True)
             
@@ -228,10 +229,6 @@ async def download_audio(query: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"下载异常: {e}")
         logger.error(traceback.format_exc())
-        return None
-                
-    except Exception as e:
-        logger.error(f"下载异常: {e}")
         return None
 
 async def stream_audio(audio_file: str, guild_id: str):
