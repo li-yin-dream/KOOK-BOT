@@ -161,34 +161,52 @@ class Store:
 # --- 核心功能函数 ---
 
 async def download_audio(query: str) -> Optional[str]:
-    """从 Bilibili 下载音频"""
+    """从网易云音乐下载"""
     try:
         tmp_dir = tempfile.mkdtemp()
-        output_path = f"{tmp_dir}/audio.mp3"
+        output_path = f"{tmp_dir}/music.mp3"
         
-        # 使用 Bilibili 搜索
-        cmd = [
-            "yt-dlp",
-            f"bvsearch1:{query}",  # B站搜索
-            "-x", "--audio-format", "mp3",
-            "--audio-quality", "128K",
-            "-o", output_path,
-            "--no-playlist",
-            "--max-filesize", "50M",
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0"
-        ]
+        # 搜索歌曲
+        search_url = "https://music.163.com/api/search/get/web"
+        params = {
+            "csrf_token": "",
+            "s": query,
+            "type": "1",
+            "offset": "0",
+            "total": "true",
+            "limit": "1"
+        }
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://music.163.com/"
+        }
         
-        process = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
-        
-        if os.path.exists(output_path):
-            return output_path
-        
-        logger.error(f"下载失败: {stderr.decode()}")
-        return None
-        
+        async with httpx.AsyncClient() as client:
+            # 搜索
+            r = await client.get(search_url, params=params, headers=headers)
+            data = r.json()
+            
+            if not data.get("result") or not data["result"].get("songs"):
+                logger.error("未找到歌曲")
+                return None
+            
+            song = data["result"]["songs"][0]
+            song_id = song["id"]
+            song_name = song["name"]
+            logger.info(f"找到歌曲: {song_name}")
+            
+            # 获取下载链接（外链）
+            url = f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
+            
+            r = await client.get(url, headers=headers, follow_redirects=True)
+            if r.status_code == 200 and len(r.content) > 10000:
+                with open(output_path, "wb") as f:
+                    f.write(r.content)
+                return output_path
+            else:
+                logger.error("下载失败，可能是 VIP 歌曲或版权限制")
+                return None
+                
     except Exception as e:
         logger.error(f"下载异常: {e}")
         return None
