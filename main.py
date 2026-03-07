@@ -277,16 +277,20 @@ async def play_next(guild_id: str):
 
 # --- Webhook 路由 (最终修复版) ---
 
-@app.api_route("/webhook", methods=["GET", "POST"])
+@app.api_route("/webhook", methods=["GET", "POST", "HEAD"])
 async def webhook(request: Request):
-    from fastapi.responses import PlainTextResponse
+    from fastapi.responses import Response
+
+    # HEAD 请求：健康检查
+    if request.method == "HEAD":
+        return Response(status_code=200)
 
     # GET 请求：用于浏览器调试
     if request.method == "GET":
         challenge = request.query_params.get("challenge")
         if challenge:
             logger.info(f"✅ [GET] Challenge received: {challenge}")
-            return PlainTextResponse(content=challenge)
+            return Response(content=challenge, media_type="text/plain")
         raise HTTPException(status_code=400, detail="Missing challenge parameter")
 
     # POST 请求：KOOK 官方验证 & 消息
@@ -297,12 +301,12 @@ async def webhook(request: Request):
                 return {"code": 0}
 
             body_text = ""
-            # ⚠️ 关键：KOOK 使用 zlib (deflate)，不是 gzip！优先尝试 zlib
+            # 🎯 关键：KOOK 使用 raw deflate (wbits=-15)，不是标准 zlib！
             try:
-                body_text = zlib.decompress(raw_body).decode('utf-8')
-                logger.debug("Decoded with zlib")
+                body_text = zlib.decompress(raw_body, wbits=-15).decode('utf-8')
+                logger.debug("Decoded with raw deflate (wbits=-15)")
             except Exception as e:
-                logger.warning(f"zlib decompress failed: {e}, trying plain UTF-8")
+                logger.warning(f"raw deflate decompress failed: {e}, trying plain UTF-8")
                 try:
                     body_text = raw_body.decode('utf-8')
                 except Exception as e2:
@@ -320,7 +324,7 @@ async def webhook(request: Request):
 
                 # 校验 Verify Token（如果设置了）
                 if VERIFY_TOKEN and verify_token != VERIFY_TOKEN:
-                    logger.error("❌ Verify Token mismatch!")
+                    logger.error(f"❌ Verify Token mismatch! Expected: {VERIFY_TOKEN}, Got: {verify_token}")
                     raise HTTPException(403, "Invalid verify token")
 
                 if not challenge_code:
@@ -329,7 +333,7 @@ async def webhook(request: Request):
 
                 logger.info(f"✅ [POST] Returning challenge: {challenge_code}")
                 # 🎯 必须返回纯文本！不能是 JSON！
-                return PlainTextResponse(content=challenge_code)
+                return Response(content=challenge_code, media_type="text/plain")
 
             # 处理正常消息
             if body.get("s") == 0 and data.get("type") == 1:
