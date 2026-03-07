@@ -496,10 +496,19 @@ async def keep_alive_loop(guild_id: str, channel_id: str):
         else:
             break
 
-@app.get("/")
-async def root():
-    return {"status": "KOOK Bot Running", "redis": USE_REDIS, "time": datetime.now().isoformat()}
+# 将 @app.get("/") 改为 @app.head("/", include_in_schema=False) 和 @app.get("/")
+# 或者更简单地，使用 @app.api_route 来同时支持多种方法
 
+@app.api_route("/", methods=["GET", "HEAD"])
+async def root(request: Request):
+    # 如果是 HEAD 请求，我们只需要返回一个空的 200 OK 响应即可
+    if request.method == "HEAD":
+        from fastapi.responses import Response
+        return Response(status_code=200)
+    
+    # 如果是 GET 请求，返回正常的 JSON 信息
+    return {"status": "KOOK Bot Running", "redis": USE_REDIS, "time": datetime.now().isoformat()}
+    
 if __name__ == "__main__":
     import uvicorn
     logger.info(f"Starting server on port {PORT}...")
