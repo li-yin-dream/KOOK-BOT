@@ -1,7 +1,8 @@
-fastapi==0.109.0
-uvicorn==0.27.0
-httpx==0.26.0
-redis==5.0.1
-edge-tts==6.1.9
-python-multipart==0.0.6
-yt-dlp==2023.12.30
+[phases.setup]
+nixPkgs = ["python39", "ffmpeg"]
+
+[phases.build]
+cmds = ["pip install --no-cache-dir -r requirements.txt"]
+
+[start]
+cmd = "python main.py"
