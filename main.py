@@ -301,16 +301,18 @@ async def webhook(request: Request):
                 return {"code": 0}
 
             body_text = ""
-            # 🎯 关键：KOOK 使用 raw deflate (wbits=-15)，不是标准 zlib！
+            # 🎯 关键：KOOK 使用的是标准 zlib 压缩（带 header），不是 raw deflate！
             try:
-                body_text = zlib.decompress(raw_body, wbits=-15).decode('utf-8')
-                logger.debug("Decoded with raw deflate (wbits=-15)")
+                body_text = zlib.decompress(raw_body).decode('utf-8')
+                logger.debug("Decoded with standard zlib")
             except Exception as e:
-                logger.warning(f"raw deflate decompress failed: {e}, trying plain UTF-8")
+                logger.warning(f"Standard zlib decompress failed: {e}, trying raw deflate")
                 try:
-                    body_text = raw_body.decode('utf-8')
+                    body_text = zlib.decompress(raw_body, wbits=-15).decode('utf-8')
+                    logger.debug("Decoded with raw deflate (wbits=-15)")
                 except Exception as e2:
-                    logger.error(f"UTF-8 decode failed: {e2}")
+                    logger.error(f"Raw deflate also failed: {e2}")
+                    # 如果都失败，尝试直接解码（极少情况）
                     body_text = raw_body.decode('utf-8', errors='ignore')
 
             body = json.loads(body_text)
