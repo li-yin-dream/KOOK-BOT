@@ -201,15 +201,20 @@ async def download_audio(query: str) -> Optional[str]:
                 logger.error(f"不是字典: {type(data)}")
                 return None
             
-            if not data.get("result"):
-                logger.error(f"没有 result: {data.keys()}")
-                return None
-                
-            if not data["result"].get("songs"):
-                logger.error("没有 songs")
+                        # 检查 result 是否存在且是字典
+            result = data.get("result")
+            if not isinstance(result, dict):
+                logger.error(f"result 不是字典: {type(result)} - {result}")
                 return None
             
-            song = data["result"]["songs"][0]
+            logger.info(f"result 类型: {type(result)}, keys: {result.keys()}")
+            
+            songs = result.get("songs")
+            if not isinstance(songs, list) or len(songs) == 0:
+                logger.error(f"songs 不是列表或为空: {type(songs)}")
+                return None
+            
+            song = songs[0]
             song_id = song["id"]
             song_name = song["name"]
             logger.info(f"找到歌曲: {song_name}")
