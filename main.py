@@ -345,23 +345,24 @@ async def webhook(request: Request):
             data = body.get("d", {})
             logger.info(f"📊 Parsed data: {data}")
 
-            # 处理 Challenge (type 255)
+                        # 处理 Challenge (type 255)
             if data.get("type") == 255:
                 challenge_code = data.get("challenge")
+                
+                # 如果没有 challenge 字段，不是验证请求，是系统消息
+                if not challenge_code:
+                    logger.info("收到系统消息，忽略")
+                    return {"code": 0}
+                
+                logger.info(f"⚠️ [POST] Received Challenge: {challenge_code}")
                 verify_token = data.get("verify_token")
                 
-                logger.info(f"🎯 Challenge code: {challenge_code}")
-                logger.info(f"🔑 Verify token received: {verify_token}")
-                logger.info(f"🔒 Expected token: {VERIFY_TOKEN}")
-
+                # 校验 Verify Token
                 if VERIFY_TOKEN and verify_token != VERIFY_TOKEN:
-                    logger.error("❌ Token mismatch!")
+                    logger.error(f"❌ Token mismatch!")
                     raise HTTPException(403, "Invalid verify token")
-
-                if not challenge_code:
-                    logger.error("❌ Missing challenge code!")
-                    raise HTTPException(400, "Missing challenge")
-
+                
+                return JSONResponse(content={"challenge": challenge_code})
                 # ✅ 返回 JSON
                 response_data = {"challenge": challenge_code}
                 logger.info(f"✅ Returning: {response_data}")
