@@ -161,19 +161,21 @@ class Store:
 # --- 核心功能函数 ---
 
 async def download_audio(query: str) -> Optional[str]:
-    """下载 YouTube 音频"""
+    """从 Bilibili 下载音频"""
     try:
         tmp_dir = tempfile.mkdtemp()
         output_path = f"{tmp_dir}/audio.mp3"
         
+        # 使用 Bilibili 搜索
         cmd = [
             "yt-dlp",
-            f"ytsearch1:{query}",
+            f"bvsearch1:{query}",  # B站搜索
             "-x", "--audio-format", "mp3",
             "--audio-quality", "128K",
             "-o", output_path,
-            "--no-playlist", "--max-filesize", "50M",
-            "--user-agent", "Mozilla/5.0"
+            "--no-playlist",
+            "--max-filesize", "50M",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0"
         ]
         
         process = await asyncio.create_subprocess_exec(
@@ -183,8 +185,10 @@ async def download_audio(query: str) -> Optional[str]:
         
         if os.path.exists(output_path):
             return output_path
+        
         logger.error(f"下载失败: {stderr.decode()}")
         return None
+        
     except Exception as e:
         logger.error(f"下载异常: {e}")
         return None
