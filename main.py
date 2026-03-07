@@ -333,9 +333,10 @@ async def webhook(request: Request):
                     logger.error("❌ Challenge code is missing!")
                     raise HTTPException(400, "Missing challenge in data")
 
-                logger.info(f"✅ [POST] Returning challenge: {challenge_code}")
-                # 🎯 必须返回纯文本！不能是 JSON！
-                return Response(content=challenge_code, media_type="text/plain")
+              logger.info(f"✅ [POST] Returning challenge: {challenge_code}")
+# ✅ 使用 JSONResponse 返回，确保 Content-Type 正确
+from fastapi.responses import JSONResponse
+return JSONResponse(content={"challenge": challenge_code})
 
             # 处理正常消息
             if body.get("s") == 0 and data.get("type") == 1:
