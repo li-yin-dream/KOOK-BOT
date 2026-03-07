@@ -279,7 +279,7 @@ async def play_next(guild_id: str):
 
 @app.api_route("/webhook", methods=["GET", "POST", "HEAD"])
 async def webhook(request: Request):
-    from fastapi.responses import Response
+    from fastapi.responses import Response, JSONResponse
 
     # HEAD 请求：健康检查
     if request.method == "HEAD":
@@ -290,53 +290,58 @@ async def webhook(request: Request):
         challenge = request.query_params.get("challenge")
         if challenge:
             logger.info(f"✅ [GET] Challenge received: {challenge}")
-            return {"challenge": challenge_code}
+            return Response(content=challenge, media_type="text/plain")
         raise HTTPException(status_code=400, detail="Missing challenge parameter")
 
     # POST 请求：KOOK 官方验证 & 消息
     if request.method == "POST":
         try:
             raw_body = await request.body()
+            logger.info(f"📦 Received body length: {len(raw_body)}")
+            
             if not raw_body:
+                logger.warning("Empty body received")
                 return {"code": 0}
 
-            body_text = ""
-            # 🎯 关键：KOOK 使用的是标准 zlib 压缩（带 header），不是 raw deflate！
+            # 解压
             try:
                 body_text = zlib.decompress(raw_body).decode('utf-8')
-                logger.debug("Decoded with standard zlib")
+                logger.info("✅ Zlib decompressed successfully")
             except Exception as e:
-                logger.warning(f"Standard zlib decompress failed: {e}, trying raw deflate")
+                logger.warning(f"Zlib failed: {e}, trying raw deflate")
                 try:
                     body_text = zlib.decompress(raw_body, wbits=-15).decode('utf-8')
-                    logger.debug("Decoded with raw deflate (wbits=-15)")
                 except Exception as e2:
-                    logger.error(f"Raw deflate also failed: {e2}")
-                    # 如果都失败，尝试直接解码（极少情况）
+                    logger.error(f"Decompression failed: {e2}")
                     body_text = raw_body.decode('utf-8', errors='ignore')
 
+            logger.info(f"📄 Body text: {body_text[:200]}...")  # 打印前200字符
+            
             body = json.loads(body_text)
             data = body.get("d", {})
+            logger.info(f"📊 Parsed data: {data}")
 
             # 处理 Challenge (type 255)
             if data.get("type") == 255:
-                logger.info(f"⚠️ [POST] Received Challenge (Type 255)")
                 challenge_code = data.get("challenge")
                 verify_token = data.get("verify_token")
+                
+                logger.info(f"🎯 Challenge code: {challenge_code}")
+                logger.info(f"🔑 Verify token received: {verify_token}")
+                logger.info(f"🔒 Expected token: {VERIFY_TOKEN}")
 
-                # 校验 Verify Token（如果设置了）
                 if VERIFY_TOKEN and verify_token != VERIFY_TOKEN:
-                    logger.error(f"❌ Verify Token mismatch! Expected: {VERIFY_TOKEN}, Got: {verify_token}")
+                    logger.error("❌ Token mismatch!")
                     raise HTTPException(403, "Invalid verify token")
 
                 if not challenge_code:
-                    logger.error("❌ Challenge code is missing!")
-                    raise HTTPException(400, "Missing challenge in data")
+                    logger.error("❌ Missing challenge code!")
+                    raise HTTPException(400, "Missing challenge")
 
-                logger.info(f"✅ [POST] Returning challenge: {challenge_code}")
-                # ✅ 使用 JSONResponse 返回，确保 Content-Type 正确
-                from fastapi.responses import JSONResponse
-                return JSONResponse(content={"challenge": challenge_code})
+                # ✅ 返回 JSON
+                response_data = {"challenge": challenge_code}
+                logger.info(f"✅ Returning: {response_data}")
+                return JSONResponse(content=response_data)
 
             # 处理正常消息
             if body.get("s") == 0 and data.get("type") == 1:
@@ -344,13 +349,9 @@ async def webhook(request: Request):
 
             return {"code": 0}
 
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error: {e}")
-            raise HTTPException(status_code=400, detail="Invalid JSON")
         except Exception as e:
-            logger.error(f"Webhook exception: {e}")
+            logger.error(f"❌ Webhook error: {e}")
             logger.error(traceback.format_exc())
-            # 即使出错也返回 200，避免 KOOK 重试风暴
             return {"code": 0}
 
     raise HTTPException(status_code=405, detail="Method not allowed")
