@@ -161,79 +161,56 @@ class Store:
 # --- 核心功能函数 ---
 
 async def download_audio(query: str) -> Optional[str]:
-    """从网易云音乐下载"""
+    """使用第三方网易云 API"""
     try:
         tmp_dir = tempfile.mkdtemp()
         output_path = f"{tmp_dir}/music.mp3"
         
-        # 修复：去掉 URL 末尾空格
-        search_url = "https://music.163.com/api/search/get/web"
-        params = {
-            "csrf_token": "",
-            "s": query,
-            "type": "1",
-            "offset": "0",
-            "total": "true",
-            "limit": "1"
-        }
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://music.163.com/"  # 修复：去掉空格
-        }
+        # 使用开源 API（需要确认可用性）
+        api_base = "https://netease-cloud-music-api-gamma.vercel.app"
         
         async with httpx.AsyncClient() as client:
-            r = await client.get(search_url, params=params, headers=headers)
+            # 搜索
+            search_url = f"{api_base}/search?keywords={query}&limit=1"
+            r = await client.get(search_url)
+            data = r.json()
             
-            # 打印原始响应
-            logger.info(f"状态码: {r.status_code}")
-            logger.info(f"响应内容: {r.text[:500]}")
-            
-            # 尝试解析 JSON
-            try:
-                data = r.json()
-                logger.info(f"解析成功: {type(data)}")
-            except Exception as e:
-                logger.error(f"JSON 解析失败: {e}")
+            if data.get("code") != 200 or not data.get("result", {}).get("songs"):
+                logger.error("未找到歌曲")
                 return None
             
-            # 检查是否是字典
-            if not isinstance(data, dict):
-                logger.error(f"不是字典: {type(data)}")
-                return None
-            
-                        # 检查 result 是否存在且是字典
-            result = data.get("result")
-            if not isinstance(result, dict):
-                logger.error(f"result 不是字典: {type(result)} - {result}")
-                return None
-            
-            logger.info(f"result 类型: {type(result)}, keys: {result.keys()}")
-            
-            songs = result.get("songs")
-            if not isinstance(songs, list) or len(songs) == 0:
-                logger.error(f"songs 不是列表或为空: {type(songs)}")
-                return None
-            
-            song = songs[0]
+            song = data["result"]["songs"][0]
             song_id = song["id"]
             song_name = song["name"]
-            logger.info(f"找到歌曲: {song_name}")
+            logger.info(f"找到: {song_name}")
             
-            # 修复：去掉 URL 中的空格
-            url = f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
-            r = await client.get(url, headers=headers, follow_redirects=True)
+            # 获取播放链接
+            url_endpoint = f"{api_base}/song/url?id={song_id}"
+            r = await client.get(url_endpoint)
+            data = r.json()
             
-            if r.status_code == 200 and len(r.content) > 10000:
-                with open(output_path, "wb") as f:
-                    f.write(r.content)
-                return output_path
-            else:
-                logger.error(f"下载失败: {r.status_code}, 大小: {len(r.content)}")
+            if data.get("code") != 200:
+                logger.error("获取链接失败")
                 return None
-                
+            
+            music_url = data.get("data", [{}])[0].get("url")
+            if not music_url:
+                logger.error("无法获取链接（VIP/版权）")
+                return None
+            
+            # 下载
+            r = await client.get(music_url)
+            if len(r.content) < 10000:
+                logger.error("文件太小，可能无效")
+                return None
+            
+            with open(output_path, "wb") as f:
+                f.write(r.content)
+            
+            return output_path
+            
     except Exception as e:
-        logger.error(f"下载异常: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"异常: {e}")
         return None
 
 async def stream_audio(audio_file: str, guild_id: str):
