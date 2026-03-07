@@ -290,7 +290,7 @@ async def webhook(request: Request):
         challenge = request.query_params.get("challenge")
         if challenge:
             logger.info(f"✅ [GET] Challenge received: {challenge}")
-            return Response(content=challenge, media_type="text/plain")
+            return {"challenge": challenge_code}
         raise HTTPException(status_code=400, detail="Missing challenge parameter")
 
     # POST 请求：KOOK 官方验证 & 消息
