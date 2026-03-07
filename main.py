@@ -279,7 +279,9 @@ async def play_next(guild_id: str):
 
 @app.api_route("/webhook", methods=["GET", "POST"])
 async def webhook(request: Request):
-    # 1. 处理 GET 请求 (浏览器调试用)
+    from fastapi.responses import PlainTextResponse
+
+    # GET 请求：用于浏览器调试
     if request.method == "GET":
         challenge = request.query_params.get("challenge")
         if challenge:
@@ -287,77 +289,61 @@ async def webhook(request: Request):
             return PlainTextResponse(content=challenge)
         raise HTTPException(status_code=400, detail="Missing challenge parameter")
 
-    # 2. 处理 POST 请求 (KOOK 官方验证 & 消息)
+    # POST 请求：KOOK 官方验证 & 消息
     if request.method == "POST":
         try:
             raw_body = await request.body()
-            
-            # 如果 body 为空，直接返回成功 (心跳检测)
             if not raw_body:
                 return {"code": 0}
-            
+
             body_text = ""
-            # 尝试多种解码方式，防止 KOOK 发送不同格式
+            # ⚠️ 关键：KOOK 使用 zlib (deflate)，不是 gzip！优先尝试 zlib
             try:
-                # 尝试 Gzip
-                body_text = gzip.decompress(raw_body).decode('utf-8')
-                logger.debug("Decoded body: Gzip")
-            except Exception:
+                body_text = zlib.decompress(raw_body).decode('utf-8')
+                logger.debug("Decoded with zlib")
+            except Exception as e:
+                logger.warning(f"zlib decompress failed: {e}, trying plain UTF-8")
                 try:
-                    # 尝试 Zlib
-                    body_text = zlib.decompress(raw_body).decode('utf-8')
-                    logger.debug("Decoded body: Zlib")
-                except Exception:
-                    # 尝试直接 UTF-8 (未压缩)
-                    try:
-                        body_text = raw_body.decode('utf-8')
-                        logger.debug("Decoded body: Plain UTF-8")
-                    except Exception:
-                        body_text = raw_body.decode('utf-8', errors='ignore')
-                        logger.warning("Decoded body with errors")
+                    body_text = raw_body.decode('utf-8')
+                except Exception as e2:
+                    logger.error(f"UTF-8 decode failed: {e2}")
+                    body_text = raw_body.decode('utf-8', errors='ignore')
 
-            # 解析 JSON
             body = json.loads(body_text)
-            
-            # 获取数据载荷 (KOOK 通常在 'd' 字段，有时直接在根目录)
-            data = body.get("d", body) 
-            signal_type = data.get("type")
-            verify_token = data.get("verify_token")
-            challenge_code = data.get("challenge")
+            data = body.get("d", {})
 
-            # --- 核心验证逻辑 (Type 255) ---
-            if signal_type == 255:
-                logger.info(f"⚠️ [POST] Received Challenge (Type 255). Token Check: {verify_token == VERIFY_TOKEN}")
-                
-                # 检查 Verify Token 是否匹配 (如果环境变量设置了的话)
+            # 处理 Challenge (type 255)
+            if data.get("type") == 255:
+                logger.info(f"⚠️ [POST] Received Challenge (Type 255)")
+                challenge_code = data.get("challenge")
+                verify_token = data.get("verify_token")
+
+                # 校验 Verify Token（如果设置了）
                 if VERIFY_TOKEN and verify_token != VERIFY_TOKEN:
-                    logger.error("❌ Verify Token 不匹配！请检查 Railway 环境变量 KOOK_VERIFY_TOKEN")
+                    logger.error("❌ Verify Token mismatch!")
                     raise HTTPException(403, "Invalid verify token")
-                
-                if challenge_code:
-                    logger.info(f"✅ [POST] Challenge Success! Returning: {challenge_code}")
-                    # 必须返回纯文本
-                    return PlainTextResponse(content=challenge_code)
-                else:
-                    logger.error("Challenge 字段为空")
+
+                if not challenge_code:
+                    logger.error("❌ Challenge code is missing!")
                     raise HTTPException(400, "Missing challenge in data")
 
-            # --- 正常消息处理 (Signal 0, Type 1) ---
+                logger.info(f"✅ [POST] Returning challenge: {challenge_code}")
+                # 🎯 必须返回纯文本！不能是 JSON！
+                return PlainTextResponse(content=challenge_code)
+
+            # 处理正常消息
             if body.get("s") == 0 and data.get("type") == 1:
-                # 异步处理消息，不阻塞响应
                 asyncio.create_task(handle_message(data))
-            
-            # 默认返回成功
+
             return {"code": 0}
-            
+
         except json.JSONDecodeError as e:
-            logger.error(f"JSON 解析失败: {e}")
-            # 如果是 JSON 错误，可能是格式不对，返回 400
+            logger.error(f"JSON decode error: {e}")
             raise HTTPException(status_code=400, detail="Invalid JSON")
         except Exception as e:
-            logger.error(f"Webhook 处理异常: {e}")
+            logger.error(f"Webhook exception: {e}")
             logger.error(traceback.format_exc())
-            # 即使出错也返回 200 OK 的空对象，防止 KOOK 疯狂重试
+            # 即使出错也返回 200，避免 KOOK 重试风暴
             return {"code": 0}
 
     raise HTTPException(status_code=405, detail="Method not allowed")
