@@ -166,7 +166,6 @@ async def download_audio(query: str) -> Optional[str]:
         tmp_dir = tempfile.mkdtemp()
         output_path = f"{tmp_dir}/music.mp3"
         
-        # 搜索歌曲
         search_url = "https://music.163.com/api/search/get/web"
         params = {
             "csrf_token": "",
@@ -182,22 +181,31 @@ async def download_audio(query: str) -> Optional[str]:
         }
         
         async with httpx.AsyncClient() as client:
-            # 搜索
             r = await client.get(search_url, params=params, headers=headers)
             
-            # 检查是否是 JSON
+            # 打印原始响应
+            logger.info(f"状态码: {r.status_code}")
+            logger.info(f"响应内容: {r.text[:500]}")
+            
+            # 尝试解析 JSON
             try:
                 data = r.json()
-            except:
-                logger.error(f"返回的不是 JSON: {r.text[:200]}")
+                logger.info(f"解析成功: {type(data)}")
+            except Exception as e:
+                logger.error(f"JSON 解析失败: {e}")
                 return None
             
+            # 检查是否是字典
             if not isinstance(data, dict):
-                logger.error(f"返回格式错误: {type(data)}")
+                logger.error(f"不是字典: {type(data)}")
                 return None
             
-            if not data.get("result") or not data["result"].get("songs"):
-                logger.error("未找到歌曲")
+            if not data.get("result"):
+                logger.error(f"没有 result: {data.keys()}")
+                return None
+                
+            if not data["result"].get("songs"):
+                logger.error("没有 songs")
                 return None
             
             song = data["result"]["songs"][0]
@@ -205,17 +213,22 @@ async def download_audio(query: str) -> Optional[str]:
             song_name = song["name"]
             logger.info(f"找到歌曲: {song_name}")
             
-            # 获取下载链接（外链）
+            # 下载
             url = f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
-            
             r = await client.get(url, headers=headers, follow_redirects=True)
+            
             if r.status_code == 200 and len(r.content) > 10000:
                 with open(output_path, "wb") as f:
                     f.write(r.content)
                 return output_path
             else:
-                logger.error("下载失败，可能是 VIP 歌曲或版权限制")
+                logger.error(f"下载失败: {r.status_code}, 大小: {len(r.content)}")
                 return None
+                
+    except Exception as e:
+        logger.error(f"下载异常: {e}")
+        logger.error(traceback.format_exc())
+        return None
                 
     except Exception as e:
         logger.error(f"下载异常: {e}")
