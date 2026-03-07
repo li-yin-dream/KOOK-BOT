@@ -1,5 +1,8 @@
 [phases.setup]
-nixPkgs = ["ffmpeg-full"]
+nixPkgs = ["python39", "ffmpeg"]
 
 [phases.build]
-cmds = ["pip install -r requirements.txt"]
+cmds = ["pip install --no-cache-dir -r requirements.txt"]
+
+[start]
+cmd = "python main.py"
