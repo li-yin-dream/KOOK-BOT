@@ -344,8 +344,11 @@ async def webhook(request: Request):
                 return JSONResponse(content=response_data)
 
             # 处理正常消息
-            if body.get("s") == 0 and data.get("type") == 1:
-                asyncio.create_task(handle_message(data))
+            if body.get("s") == 0:
+                msg_type = data.get("type")
+                # 处理文本消息 (type 1=私信, type 9=频道消息)
+                if msg_type in [1, 9]:
+                    asyncio.create_task(handle_message(data))
 
             return {"code": 0}
 
